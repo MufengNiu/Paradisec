@@ -5,11 +5,11 @@ require 'vendor/autoload.php';
 use Carbon\Carbon;
 
 //Database connection parameters
-$dbHost = '';
-$dbPort = '';
-$dbName = '';
-$dbUsername = '';
-$dbPassword = '';
+$dbHost = '127.0.0.1';
+$dbPort = '5432';
+$dbName = 'tlcmap';
+$dbUsername = 'postgres';
+$dbPassword = 'root';
 
 //The nominated owner id
 $ownerId = 103;
@@ -19,6 +19,7 @@ if ($argc == 2) {
 
     if ($command === 'import') {
         import($dbHost, $dbPort, $dbName, $dbUsername, $dbPassword, $ownerId);
+        echo "Import Successfully\n";
     } else if ($command === 'undo') {
         undo($dbHost, $dbPort, $dbName, $dbUsername, $dbPassword);
         echo "Undo import successfully\n";
@@ -79,20 +80,11 @@ function getDbConnection($dbHost, $dbPort, $dbName, $dbUsername, $dbPassword)
     return $conn;
 }
 
-function fetchGeoJSON($url)
-{
-
-    $curl = curl_init($url);
-    curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
-    $response = curl_exec($curl);
-
+function fetchGeoJSON($url) {
+    $response = file_get_contents($url);
     if ($response === false) {
-        die('Curl error: ' . curl_error($curl));
+        die("Failed to fetch the URL");
     }
-
-    curl_close($curl);
     return json_decode($response, true);
 }
 
