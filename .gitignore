@@ -1,3 +1,4 @@
 /vendor
 /composer.lock
-/mapping/*
+mapping/dataset_mapping.json
+mapping/place_mapping.json

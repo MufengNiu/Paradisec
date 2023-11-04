@@ -43,16 +43,22 @@ function import($dbHost, $dbPort, $dbName, $dbUsername, $dbPassword, $ownerId)
     $datasetIdMapping = [];
     $placeIdMapping = [];
 
+    $subjectkeywordIds = [];
+
+    $subjectkeywordIds[] = addSubjectKeyword($conn, "PARADISEC");
+    $subjectkeywordIds[] = addSubjectKeyword($conn, "linguistics");
+    $subjectkeywordIds[] = addSubjectKeyword($conn, "language");
+
     //Main collection
     $mainCollectionUrl = 'https://catalog.paradisec.org.au/collections.geo_json';
     $mainCollectionData = fetchGeoJSON($mainCollectionUrl);
-    addDatasetAndPlaces($conn, $mainCollectionData, $ownerId, "PARADISEC collections", false, false, $datasetIdMapping, $placeIdMapping);
+    addDatasetAndPlaces($conn, $mainCollectionData, $ownerId, "PARADISEC collections", false, false, $datasetIdMapping, $placeIdMapping , $subjectkeywordIds);
 
     //Sub collection
     foreach ($mainCollectionData['features'] as $feature) {
         $subCollectionUrl = "https://catalog.paradisec.org.au/collections/" . $feature['properties']['id'] . ".geo_json";
         $subCollectionData = fetchGeoJSON($subCollectionUrl);
-        addDatasetAndPlaces($conn, $subCollectionData, $ownerId, null, true, true, $datasetIdMapping, $placeIdMapping);
+        addDatasetAndPlaces($conn, $subCollectionData, $ownerId, null, true, true, $datasetIdMapping, $placeIdMapping , $subjectkeywordIds);
     }
 
     pg_close($conn);
@@ -66,6 +72,32 @@ function import($dbHost, $dbPort, $dbName, $dbUsername, $dbPassword, $ownerId)
     // Write the placeIds array to a JSON file
     $filename = $folder . '/place_mapping.json';
     file_put_contents($filename, json_encode($placeIdMapping, JSON_PRETTY_PRINT));
+}
+
+
+function addSubjectKeyword($conn, $keyword) {
+    $sql = "INSERT INTO tlcmap.subject_keyword (keyword)
+            SELECT '$keyword'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM tlcmap.subject_keyword WHERE keyword = '$keyword'
+            );";
+
+    $result = pg_query($conn, $sql);
+
+    if ($result === FALSE) {
+        die("Error during keyword insertion: " . pg_last_error($conn));
+    }
+
+    $sql = "SELECT id FROM tlcmap.subject_keyword WHERE keyword = '$keyword';";
+    $result = pg_query($conn, $sql);
+
+    if ($result === FALSE) {
+        die("Error retrieving keyword id: " . pg_last_error($conn));
+    }
+
+    // Fetch the associative array and return the id
+    $row = pg_fetch_assoc($result);
+    return $row['id'];
 }
 
 
@@ -100,11 +132,12 @@ function fetchGeoJSON($url) {
 //        source_url: from the url of the FeatureCollection metadata
 //        license: main collcetion: null ;  sub-collection:  from the license of the FeatureCollection metadata
 //        rights:  main collcetion: null ;  sub-collection:  from the rights of the FeatureCollection metadata
-//        recordtype_id: 1 (Other)
+//        recordtype_id: 3 (Media)
 //        linkback: the same as source_url
 //        created_at: Current time
 //        updated_at: Current time
-function addDatasetAndPlaces($conn, $data, $ownerId, $datasetName = null, $setLicense = false, $setRights = false, &$datasetIdMapping, &$placeIdMapping)
+//        Subject = PARADISEC, linguistics, language 
+function addDatasetAndPlaces($conn, $data, $ownerId, $datasetName = null, $setLicense = false, $setRights = false, &$datasetIdMapping, &$placeIdMapping , $subjectkeywordIds)
 {
     $metadata = $data['metadata'];
 
@@ -124,7 +157,7 @@ function addDatasetAndPlaces($conn, $data, $ownerId, $datasetName = null, $setLi
         $metadata['url'],
         $setLicense ? $metadata['license'] : null,
         $setRights ? $metadata['rights'] : null,
-        1,
+        3,
         $metadata['url'],
         $createdAt,
         $updatedAt
@@ -143,6 +176,11 @@ function addDatasetAndPlaces($conn, $data, $ownerId, $datasetName = null, $setLi
     addOwnership($conn, $ownerId, $layerId);
     $datasetIdMapping[][$metadata['id']] = $layerId;
 
+    // Add subject keyword
+    if(count($subjectkeywordIds) > 0){
+        addSubjectKeywordToLayer($conn , $layerId , $subjectkeywordIds);
+    }
+   
     // Add places
     addPlaces($conn, $data['features'], $layerId, $placeIdMapping);
 }
@@ -174,6 +212,24 @@ function addOwnership($conn, $ownerId, $layerId)
     if (!$result) {
         die("user_dataset table update failed: " . pg_last_error($conn));
     }
+}
+
+function addSubjectKeywordToLayer($conn , $layerId , $subjectkeywordIds){
+
+    $sql = "INSERT INTO tlcmap.dataset_subject_keyword (dataset_id, subject_keyword_id)
+            VALUES ($1, $2)";
+    
+    foreach ($subjectkeywordIds as $subjectkeywordId) {
+        $result = pg_query_params($conn, $sql, [
+            $layerId,
+            $subjectkeywordId
+        ]);
+    
+        if (!$result) {
+            die("dataset_subject_keyword table update failed: " . pg_last_error($conn));
+        }
+    }
+
 }
 
 
@@ -432,7 +488,7 @@ function update($dbHost, $dbPort, $dbName, $dbUsername, $dbPassword, $ownerId)
             updateDatasetAndPlaces($conn, $subCollectionData, $layerId, null, true, true, $placeIdMapping);
         } else {
             // Add New places
-            addDatasetAndPlaces($conn, $subCollectionData, $ownerId, null, true, true, $datasetIdMapping, $placeIdMapping);
+            addDatasetAndPlaces($conn, $subCollectionData, $ownerId, null, true, true, $datasetIdMapping, $placeIdMapping , []);
         }
     }
 
